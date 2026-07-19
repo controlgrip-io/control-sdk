@@ -8,8 +8,10 @@ info:
     an org owner/admin. No API tokens yet. Worker-plane endpoints
     (/api/worker/*) are HMAC bearer-token authenticated and NOT covered here.
 servers:
+  # Both planes are served from ONE origin only via the client nginx (dev host
+  # port 60000) or production; :30000 is the auth edge alone (domain API is on
+  # :40000), so a single-base-URL client must use the nginx/production origin.
   - url: https://www.controlgrip.io
-  - url: http://localhost:30000
 paths:
   /api/auth/sign-in/email:
     post:
