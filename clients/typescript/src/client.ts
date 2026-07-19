@@ -41,9 +41,10 @@ export class ControlGrip {
     }
     const text = await res.text();
     if (!res.ok) {
+      // httpError emits a FLAT envelope: {"error":"<msg>","code":"<CODE>"}.
       try {
-        const err = JSON.parse(text).error;
-        throw new ControlGripError(res.status, err.code ?? "?", err.message ?? text);
+        const body = JSON.parse(text) as { error?: string; code?: string };
+        throw new ControlGripError(res.status, body.code ?? "HTTP", body.error ?? text);
       } catch (e) {
         if (e instanceof ControlGripError) throw e;
         throw new ControlGripError(res.status, "HTTP", text);
@@ -59,6 +60,11 @@ export class ControlGrip {
   // ── auth (cookie session; no API tokens yet) ─────────────────────────────
   signIn(email: string, password: string) {
     return this.post("/api/auth/sign-in/email", { email, password });
+  }
+
+  /** Required when the user belongs to >1 org (single membership auto-resolves). */
+  setActiveOrg(organizationId: string) {
+    return this.post("/api/auth/organization/set-active", { organizationId });
   }
 
   // ── idempotent create-by-name ─────────────────────────────────────────────

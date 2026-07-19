@@ -58,17 +58,16 @@ func (c *Client) Do(method, path string, body, out any) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
+		// httpError emits a FLAT envelope: {"error":"<message>","code":"<CODE>"}.
 		var envelope struct {
-			Error struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			} `json:"error"`
+			Error string `json:"error"`
+			Code  string `json:"code"`
 		}
 		_ = json.NewDecoder(res.Body).Decode(&envelope)
-		if envelope.Error.Code == "" {
-			envelope.Error.Code = "HTTP"
+		if envelope.Code == "" {
+			envelope.Code = "HTTP"
 		}
-		return &APIError{Status: res.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message}
+		return &APIError{Status: res.StatusCode, Code: envelope.Code, Message: envelope.Error}
 	}
 	if out != nil {
 		return json.NewDecoder(res.Body).Decode(out)
@@ -81,6 +80,13 @@ func (c *Client) Do(method, path string, body, out any) error {
 func (c *Client) SignIn(email, password string) error {
 	return c.Do("POST", "/api/auth/sign-in/email",
 		map[string]string{"email": email, "password": password}, nil)
+}
+
+// SetActiveOrg is required when the user belongs to more than one org; a
+// single membership auto-resolves.
+func (c *Client) SetActiveOrg(organizationID string) error {
+	return c.Do("POST", "/api/auth/organization/set-active",
+		map[string]string{"organizationId": organizationID}, nil)
 }
 
 // Named is the id+name projection shared by list endpoints.
@@ -102,8 +108,10 @@ func (c *Client) Ensure(path, name string, createBody any) (Named, error) {
 		}
 	}
 	var created Named
-	err := c.Do("POST", path, createBody, &created)
-	return created, err
+	if err := c.Do("POST", path, createBody, &created); err != nil {
+		return Named{}, err
+	}
+	return created, nil
 }
 
 // CreateWorkerResult carries the ONE-TIME enrollment key.

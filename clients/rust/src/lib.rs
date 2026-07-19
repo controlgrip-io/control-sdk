@@ -68,11 +68,12 @@ impl ControlGrip {
         let status = res.status();
         let text = res.text()?;
         if !status.is_success() {
+            // httpError emits a FLAT envelope: {"error":"<msg>","code":"<CODE>"}.
             let envelope: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
             return Err(Error::Api {
                 status: status.as_u16(),
-                code: envelope["error"]["code"].as_str().unwrap_or("HTTP").to_string(),
-                message: envelope["error"]["message"].as_str().unwrap_or(&text).to_string(),
+                code: envelope["code"].as_str().unwrap_or("HTTP").to_string(),
+                message: envelope["error"].as_str().unwrap_or(&text).to_string(),
             });
         }
         Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
@@ -81,6 +82,14 @@ impl ControlGrip {
     pub fn sign_in(&self, email: &str, password: &str) -> Result<(), Error> {
         self.request("POST", "/api/auth/sign-in/email",
             Some(json!({"email": email, "password": password})))?;
+        Ok(())
+    }
+
+    /// Required when the user belongs to more than one org (single membership
+    /// auto-resolves).
+    pub fn set_active_org(&self, organization_id: &str) -> Result<(), Error> {
+        self.request("POST", "/api/auth/organization/set-active",
+            Some(json!({"organizationId": organization_id})))?;
         Ok(())
     }
 

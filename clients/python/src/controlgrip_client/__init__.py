@@ -34,10 +34,11 @@ class ControlGrip:
     def request(self, method: str, path: str, json: Any | None = None) -> Any:
         r = self.http.request(method, f"{self.base}{path}", json=json)
         if r.status_code >= 300:
+            # httpError emits a FLAT envelope: {"error": "<msg>", "code": "<CODE>"}.
             try:
-                err = r.json()["error"]
-                raise ControlGripError(r.status_code, err.get("code", "?"), err.get("message", r.text))
-            except (ValueError, KeyError):
+                body = r.json()
+                raise ControlGripError(r.status_code, body.get("code", "HTTP"), body.get("error", r.text))
+            except ValueError:
                 raise ControlGripError(r.status_code, "HTTP", r.text)
         return r.json() if r.content else None
 
@@ -48,6 +49,11 @@ class ControlGrip:
     # ── auth (cookie session; no API tokens yet) ────────────────────────────
     def sign_in(self, email: str, password: str) -> None:
         self.post("/api/auth/sign-in/email", {"email": email, "password": password})
+
+    def set_active_org(self, organization_id: str) -> None:
+        """Required when the automation user belongs to >1 org — the
+        orchestrator only auto-resolves a single membership."""
+        self.post("/api/auth/organization/set-active", {"organizationId": organization_id})
 
     # ── idempotent create-by-name ───────────────────────────────────────────
     def ensure(self, path: str, name: str, create_body: dict) -> dict:
