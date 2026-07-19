@@ -1,0 +1,186 @@
+openapi: 3.1.0
+info:
+  title: ControlGrip Orchestrator API (session-scoped)
+  version: 0.1.0
+  description: >
+    The console's own API: cookie-session authenticated (better-auth sign-in on
+    the auth edge), org-scoped. Reads require org membership; mutations require
+    an org owner/admin. No API tokens yet. Worker-plane endpoints
+    (/api/worker/*) are HMAC bearer-token authenticated and NOT covered here.
+servers:
+  - url: https://www.controlgrip.io
+  - url: http://localhost:30000
+paths:
+  /api/auth/sign-in/email:
+    post:
+      summary: Sign in (auth edge); sets the session cookie
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties: { email: {type: string}, password: {type: string} }
+      responses: { "200": { description: Session cookie set } }
+  /api/projects:
+    get: { summary: List projects, responses: { "200": { description: OK } } }
+    post:
+      summary: Create project (admin)
+      requestBody: { content: { application/json: { schema: { type: object, required: [name], properties: { name: {type: string} } } } } }
+      responses: { "200": { description: Created } }
+  /api/connectors:
+    get: { summary: List connectors, responses: { "200": { description: OK } } }
+    post:
+      summary: Create connector (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateConnector' }
+      responses: { "200": { description: Created } }
+  /api/connectors/{id}:
+    put: { summary: Update connector (admin), responses: { "200": { description: OK } } }
+    delete: { summary: Delete connector (admin), responses: { "200": { description: OK } } }
+  /api/jobs:
+    get: { summary: List jobs, responses: { "200": { description: OK } } }
+    post:
+      summary: Create job with tasks (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateJob' }
+      responses: { "200": { description: Created } }
+  /api/jobs/{id}:
+    get: { summary: Job detail (latest version tasks + schedules), responses: { "200": { description: OK } } }
+  /api/jobs/{id}/tasks:
+    put:
+      summary: Publish a new task set as a new job version (admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tasks]
+              properties:
+                base_version: { type: integer, description: Optimistic-concurrency guard }
+                tasks: { type: array, items: { $ref: '#/components/schemas/JobTask' } }
+      responses: { "200": { description: New version } }
+  /api/jobs/{id}/secrets:
+    get: { summary: List secret names+versions (never values), responses: { "200": { description: OK } } }
+    put:
+      summary: Set per-job secrets (admin; write-only)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [secrets], properties: { secrets: { type: object, additionalProperties: { type: string } } } }
+      responses: { "200": { description: OK } }
+  /api/jobs/{id}/variables:
+    get: { summary: List variables, responses: { "200": { description: OK } } }
+    put:
+      summary: Set non-secret variables (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [variables], properties: { variables: { type: object, additionalProperties: { type: string } } } }
+      responses: { "200": { description: OK } }
+  /api/jobs/{id}/run:
+    post: { summary: Trigger a manual run (admin), responses: { "200": { description: "{job_run_id}" } } }
+  /api/schedules:
+    post:
+      summary: Attach a cron schedule to an existing job (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [job_id, cron], properties: { job_id: {type: string}, cron: {type: string}, timezone: {type: string} } }
+      responses: { "200": { description: Created } }
+  /api/runs:
+    get:
+      summary: Newest 100 runs (org-wide, or filtered)
+      parameters:
+        - { name: job_id, in: query, schema: { type: string } }
+        - { name: worker_id, in: query, schema: { type: string } }
+        - { name: latest_per_job, in: query, schema: { type: string, enum: ["true"] } }
+      responses: { "200": { description: OK } }
+  /api/runs/{id}:
+    get: { summary: Run detail (task_runs, validation_results, logs), responses: { "200": { description: OK } } }
+  /api/runs/{id}/cancel:
+    post: { summary: Cancel a run (admin), responses: { "200": { description: OK } } }
+  /api/workers:
+    get: { summary: List workers (with trust/version surface), responses: { "200": { description: OK } } }
+    post:
+      summary: Create worker row (admin) — response carries the ONE-TIME enrollmentKey
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [name], properties: { name: {type: string}, host: {type: string}, autoShutdownOnRemoval: {type: boolean} } }
+      responses: { "200": { description: "{worker, enrollmentKey}" } }
+  /api/pools:
+    get: { summary: List pools with members, responses: { "200": { description: OK } } }
+    post:
+      summary: Create pool (admin; requires >= 1 enrolled worker to be useful)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [name], properties: { name: {type: string}, timezone: {type: string} } }
+      responses: { "200": { description: Created } }
+  /api/pools/{poolId}/workers:
+    post:
+      summary: Add worker to pool (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [worker_id], properties: { worker_id: {type: string} } }
+      responses: { "200": { description: OK } }
+components:
+  schemas:
+    CreateConnector:
+      type: object
+      required: [name, type, config]
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [postgres, airbyte, controlgrip-python, controlgrip-typescript, controlgrip-golang, controlgrip-rust] }
+        config: { type: object, description: "postgres: {host,port,database,user,password,sslmode}; airbyte: {image,config,configured_catalog}; plugins: {entrypoint,env,source_path?}" }
+        source: { type: object, description: Uploaded plugin archive (folder upload custody) }
+    JobTask:
+      type: object
+      required: [key, action, position]
+      properties:
+        key: { type: string }
+        name: { type: string }
+        position: { type: integer }
+        connector_ref: { type: string, description: Connector id }
+        action: { type: string, enum: [read, execute] }
+        input: { type: object, description: "read: the connector's config JSON; execute: {sql}. ${var:NAME}/${secret:NAME} resolved at dispatch" }
+        expected_output:
+          type: object
+          description: Deterministic validation contract
+          properties:
+            checks:
+              type: array
+              items:
+                type: object
+                required: [type]
+                properties:
+                  type: { type: string, enum: [record_count, stream_record_count, required_streams, fields_present, field_aggregate] }
+        retry_policy: { type: object }
+        depends_on:
+          type: array
+          items:
+            type: object
+            required: [task, when]
+            properties:
+              task: { type: string }
+              when: { type: string, enum: [passes, finishes, starts] }
+    CreateJob:
+      type: object
+      required: [name, tasks]
+      properties:
+        name: { type: string }
+        project_id: { type: string }
+        project_name: { type: string, description: Created on first use }
+        pool_id: { type: string }
+        variables: { type: object, additionalProperties: { type: string } }
+        tasks: { type: array, items: { $ref: '#/components/schemas/JobTask' } }
+        schedule:
+          type: object
+          required: [cron]
+          properties: { cron: {type: string}, timezone: {type: string} }

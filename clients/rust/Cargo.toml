@@ -1,0 +1,11 @@
+[package]
+name = "controlgrip-client"
+version = "0.1.0"
+edition = "2021"
+description = "ControlGrip orchestrator API client (session-cookie auth)"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["blocking", "json", "cookies"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"

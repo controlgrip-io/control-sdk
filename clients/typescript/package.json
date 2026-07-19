@@ -1,0 +1,9 @@
+{
+  "name": "@controlgrip/client",
+  "version": "0.1.0",
+  "description": "ControlGrip orchestrator API client (session-cookie auth)",
+  "type": "module",
+  "main": "src/client.ts",
+  "engines": { "node": ">=20" },
+  "devDependencies": { "typescript": "^5.9.0" }
+}

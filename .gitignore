@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+__pycache__/
+*.pyc
+.venv/
+bun.lock
+package-lock.json
