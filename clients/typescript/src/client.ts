@@ -6,6 +6,30 @@
 
 const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled"]);
 
+export interface GitHubIntegrationStatus {
+  connected: boolean;
+  configured: boolean;
+  mode: "app" | "none";
+  login?: string;
+  avatarUrl?: string;
+  profileUrl?: string;
+}
+
+export interface GitHubRepository {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  defaultBranch: string;
+  private: boolean;
+  htmlUrl: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+  commit: { sha: string };
+}
+
 export class ControlGripError extends Error {
   constructor(
     public status: number,
@@ -56,6 +80,7 @@ export class ControlGrip {
   get<T = unknown>(path: string) { return this.request<T>("GET", path); }
   post<T = unknown>(path: string, body: unknown = {}) { return this.request<T>("POST", path, body); }
   put<T = unknown>(path: string, body: unknown) { return this.request<T>("PUT", path, body); }
+  delete<T = unknown>(path: string) { return this.request<T>("DELETE", path); }
 
   // ── auth (cookie session; no API tokens yet) ─────────────────────────────
   signIn(email: string, password: string) {
@@ -85,6 +110,40 @@ export class ControlGrip {
   }
   setVariables(jobId: string, variables: Record<string, string>) {
     return this.put(`/api/jobs/${jobId}/variables`, { variables });
+  }
+  githubStatus() {
+    return this.get<GitHubIntegrationStatus>("/api/integrations/github/status");
+  }
+  async connectGitHub(returnTo = "/settings/integrations"): Promise<string> {
+    const result = await this.post<{ authUrl: string }>(
+      "/api/integrations/github/connect", { returnTo });
+    return result.authUrl;
+  }
+  disconnectGitHub() {
+    return this.delete<void>("/api/integrations/github");
+  }
+  githubRepositories(query = "") {
+    const suffix = query.trim()
+      ? `?${new URLSearchParams({ q: query.trim() })}`
+      : "";
+    return this.get<GitHubRepository[]>(
+      `/api/integrations/github/repositories${suffix}`);
+  }
+  githubBranches(owner: string, repo: string) {
+    const query = new URLSearchParams({ owner, repo });
+    return this.get<GitHubBranch[]>(
+      `/api/integrations/github/branches?${query}`);
+  }
+  async githubRepositoryFileExists(
+    owner: string,
+    repo: string,
+    ref: string,
+    path: string,
+  ): Promise<boolean> {
+    const query = new URLSearchParams({ owner, repo, ref, path });
+    const result = await this.get<{ exists: boolean }>(
+      `/api/integrations/github/repo-file?${query}`);
+    return result.exists;
   }
   updateTasks(jobId: string, tasks: unknown[], baseVersion: number) {
     return this.put(`/api/jobs/${jobId}/tasks`, { tasks, base_version: baseVersion });

@@ -13,10 +13,53 @@ from __future__ import annotations
 
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 
 TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
+GITHUB_AUTHENTICATION = ("github_app", "public")
+GITHUB_REVISION_POLICIES = ("track_ref", "pin")
+
+
+def github_source(
+    repository: dict[str, Any],
+    ref: str,
+    main_path: str,
+    *,
+    workdir: str = ".",
+    revision_policy: str = "track_ref",
+    authentication: str = "github_app",
+) -> dict[str, Any]:
+    """Build task-owned GitHub source metadata from a repository API row."""
+    if authentication not in GITHUB_AUTHENTICATION:
+        raise ValueError(
+            "github_source: authentication must be one of "
+            f"{GITHUB_AUTHENTICATION} (got {authentication!r})"
+        )
+    if revision_policy not in GITHUB_REVISION_POLICIES:
+        raise ValueError(
+            "github_source: revision_policy must be one of "
+            f"{GITHUB_REVISION_POLICIES} (got {revision_policy!r})"
+        )
+    try:
+        repository_id = repository["id"]
+        owner = repository["owner"]
+        name = repository["name"]
+    except KeyError as exc:
+        raise ValueError(
+            f"github_source: repository is missing {exc.args[0]!r}"
+        ) from exc
+    return {
+        "type": "git",
+        "provider": "github",
+        "authentication": authentication,
+        "repository": {"id": repository_id, "owner": owner, "name": name},
+        "ref": ref,
+        "revision_policy": revision_policy,
+        "workdir": workdir,
+        "main_path": main_path,
+    }
 
 
 class ControlGripError(RuntimeError):
@@ -45,6 +88,7 @@ class ControlGrip:
     def get(self, path: str) -> Any: return self.request("GET", path)
     def post(self, path: str, body: Any = None) -> Any: return self.request("POST", path, body or {})
     def put(self, path: str, body: Any) -> Any: return self.request("PUT", path, body)
+    def delete(self, path: str) -> Any: return self.request("DELETE", path)
 
     # ── auth (cookie session; no API tokens yet) ────────────────────────────
     def sign_in(self, email: str, password: str) -> None:
@@ -69,6 +113,37 @@ class ControlGrip:
 
     def create_job(self, body: dict) -> dict:
         return self.post("/api/jobs", body)
+
+    def github_status(self) -> dict:
+        """Return server configuration and organization connection status."""
+        return self.get("/api/integrations/github/status")
+
+    def connect_github(self, return_to: str = "/settings/integrations") -> str:
+        """Start the browser-assisted connection flow and return its URL."""
+        result = self.post(
+            "/api/integrations/github/connect", {"returnTo": return_to}
+        )
+        return result["authUrl"]
+
+    def disconnect_github(self) -> None:
+        self.delete("/api/integrations/github")
+
+    def github_repositories(self, query: str = "") -> list[dict]:
+        suffix = f"?{urlencode({'q': query})}" if query else ""
+        return self.get(f"/api/integrations/github/repositories{suffix}")
+
+    def github_branches(self, owner: str, repo: str) -> list[dict]:
+        query = urlencode({"owner": owner, "repo": repo})
+        return self.get(f"/api/integrations/github/branches?{query}")
+
+    def github_repository_file_exists(
+        self, owner: str, repo: str, ref: str, path: str
+    ) -> bool:
+        query = urlencode(
+            {"owner": owner, "repo": repo, "ref": ref, "path": path}
+        )
+        result = self.get(f"/api/integrations/github/repo-file?{query}")
+        return bool(result["exists"])
 
     def set_secrets(self, job_id: str, secrets: dict[str, str]) -> None:
         self.put(f"/api/jobs/{job_id}/secrets", {"secrets": secrets})
