@@ -36,6 +36,9 @@ Every client exposes the same operations:
 | `create_job(body)` | tasks + `depends_on` DAG + `expected_output` contracts + optional inline cron |
 | `set_secrets({...})` | organization-scoped, write-only; referenced as `${secret:NAME}` |
 | `set_variables({...})` | organization-scoped plain values; referenced as `${var:NAME}` |
+| `github_status()` / `github_repositories()` | inspect the organization GitHub App connection and its repository grant |
+| `connect_github()` / `disconnect_github()` | start the browser-assisted App install flow or remove an unused connection |
+| `github_branches()` / `github_repository_file_exists()` | validate task-owned Git source metadata |
 | `update_tasks(job_id, tasks, base_version)` | publishes a new job version (optimistic concurrency) |
 | `run_job(job_id, parameters?)` → run id | manual trigger; typed parameters validated against the job's `parameters_schema`, read as `${var:CG_PARAM_<NAME>}` |
 | `create_backfill(job_id, start, end, parameters?)` | one run per past schedule window, sequentially (`list_backfills` / `cancel_backfill` alongside) |
@@ -71,6 +74,13 @@ cg.set_variables({"SINCE": "2026-01-01"})
 detail = cg.wait_for_run(cg.run_job(job["id"]))
 print(detail["state"], detail["validation_status"])
 ```
+
+GitHub connection starts through the API but is intentionally
+browser-assisted: `connect_github()` returns the GitHub authorization URL, and
+GitHub redirects through ControlGrip's signed callback after the user
+authorizes and installs the App. Once linked, use the repository, branch, and
+file helpers from automation and attach a `github_source(...)` descriptor to a
+job task's `source`.
 
 Contract validators available in `expected_output.checks`: `record_count`,
 `stream_record_count`, `required_streams`, `fields_present`,

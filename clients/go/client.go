@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -219,6 +220,104 @@ func (c *Client) RejectTaskInput(runID, taskKey, reason string) error {
 type RunDetail struct {
 	State            string `json:"state"`
 	ValidationStatus string `json:"validation_status"`
+}
+
+// GitHubIntegrationStatus describes whether the server is configured and the
+// current organization has linked a GitHub App installation.
+type GitHubIntegrationStatus struct {
+	Connected  bool   `json:"connected"`
+	Configured bool   `json:"configured"`
+	Mode       string `json:"mode"`
+	Login      string `json:"login"`
+	AvatarURL  string `json:"avatarUrl"`
+	ProfileURL string `json:"profileUrl"`
+}
+
+// GitHubRepository is one repository in the organization-scoped grant
+// captured when the GitHub App installation was connected.
+type GitHubRepository struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	FullName      string `json:"fullName"`
+	Owner         string `json:"owner"`
+	DefaultBranch string `json:"defaultBranch"`
+	Private       bool   `json:"private"`
+	HTMLURL       string `json:"htmlUrl"`
+}
+
+// GitHubBranch is a branch and its current commit.
+type GitHubBranch struct {
+	Name   string `json:"name"`
+	Commit struct {
+		SHA string `json:"sha"`
+	} `json:"commit"`
+}
+
+// GitHubStatus returns the current organization's integration status.
+func (c *Client) GitHubStatus() (GitHubIntegrationStatus, error) {
+	var out GitHubIntegrationStatus
+	err := c.Do("GET", "/api/integrations/github/status", nil, &out)
+	return out, err
+}
+
+// ConnectGitHub starts the owner/admin-only connection flow and returns the
+// GitHub URL that a user must open in a browser to authorize and install the
+// App.
+func (c *Client) ConnectGitHub(returnTo string) (string, error) {
+	if strings.TrimSpace(returnTo) == "" {
+		returnTo = "/settings/integrations"
+	}
+	var out struct {
+		AuthURL string `json:"authUrl"`
+	}
+	err := c.Do("POST", "/api/integrations/github/connect",
+		map[string]string{"returnTo": returnTo}, &out)
+	return out.AuthURL, err
+}
+
+// DisconnectGitHub removes the organization connection. The API returns
+// GITHUB_IN_USE while a current source binding or active run still needs it.
+func (c *Client) DisconnectGitHub() error {
+	return c.Do("DELETE", "/api/integrations/github", nil, nil)
+}
+
+// GitHubRepositories lists the recorded repository grant. query is an
+// optional case-insensitive substring filter on fullName.
+func (c *Client) GitHubRepositories(query string) ([]GitHubRepository, error) {
+	values := url.Values{}
+	if query = strings.TrimSpace(query); query != "" {
+		values.Set("q", query)
+	}
+	path := "/api/integrations/github/repositories"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out []GitHubRepository
+	err := c.Do("GET", path, nil, &out)
+	return out, err
+}
+
+// GitHubBranches lists branches for a repository in the recorded grant.
+func (c *Client) GitHubBranches(owner, repo string) ([]GitHubBranch, error) {
+	values := url.Values{"owner": {owner}, "repo": {repo}}
+	var out []GitHubBranch
+	err := c.Do("GET", "/api/integrations/github/branches?"+values.Encode(), nil, &out)
+	return out, err
+}
+
+// GitHubRepositoryFileExists checks a repository-relative path at ref.
+func (c *Client) GitHubRepositoryFileExists(owner, repo, ref, path string) (bool, error) {
+	values := url.Values{
+		"owner": {owner},
+		"repo":  {repo},
+		"ref":   {ref},
+		"path":  {path},
+	}
+	var out struct {
+		Exists bool `json:"exists"`
+	}
+	err := c.Do("GET", "/api/integrations/github/repo-file?"+values.Encode(), nil, &out)
+	return out.Exists, err
 }
 
 func (c *Client) GetRun(runID string) (RunDetail, error) {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ControlGrip Orchestrator API (session-scoped)
-  version: 0.1.0
+  version: 0.2.0
   description: >
     The console's own API: cookie-session authenticated (better-auth sign-in on
     the auth edge), org-scoped. Reads require org membership; mutations require
@@ -40,6 +40,8 @@ paths:
             schema: { $ref: '#/components/schemas/CreateConnector' }
       responses: { "200": { description: Created } }
   /api/connectors/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     put: { summary: Update connector (admin), responses: { "200": { description: OK } } }
     delete: { summary: Delete connector (admin), responses: { "200": { description: OK } } }
   /api/jobs:
@@ -52,8 +54,12 @@ paths:
             schema: { $ref: '#/components/schemas/CreateJob' }
       responses: { "200": { description: Created } }
   /api/jobs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     get: { summary: Job detail (latest version tasks + schedules), responses: { "200": { description: OK } } }
   /api/jobs/{id}/tasks:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     put:
       summary: Publish a new task set as a new job version (admin)
       requestBody:
@@ -85,6 +91,8 @@ paths:
             schema: { type: object, required: [variables], properties: { variables: { type: object, additionalProperties: { type: string } } } }
       responses: { "200": { description: OK } }
   /api/jobs/{id}/run:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     post:
       summary: Trigger a manual run (admin)
       requestBody:
@@ -93,6 +101,8 @@ paths:
             schema: { type: object, properties: { parameters: { type: object, description: "Typed run parameters, validated against the job's parameters_schema; read as ${var:CG_PARAM_<NAME>}" } } }
       responses: { "202": { description: "{job_run_id}" } }
   /api/jobs/{id}/backfill:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     post:
       summary: One run per past schedule window in [start, end), sequentially (admin)
       requestBody:
@@ -101,10 +111,17 @@ paths:
             schema: { type: object, required: [start, end], properties: { start: {type: string, format: date-time}, end: {type: string, format: date-time}, parameters: {type: object} } }
       responses: { "202": { description: "Backfill row with planned_runs" } }
   /api/jobs/{id}/backfills:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     get: { summary: Backfills for a job, responses: { "200": { description: "Backfill rows" } } }
   /api/backfills/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     delete: { summary: Cancel a running backfill (admin), responses: { "200": { description: Cancelled } } }
   /api/runs/{id}/tasks/{taskKey}/input:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: taskKey, in: path, required: true, schema: { type: string } }
     post:
       summary: Resolve an await_input gate (admin; approve with typed input, or reject with a reason)
       requestBody:
@@ -129,8 +146,12 @@ paths:
         - { name: latest_per_job, in: query, schema: { type: string, enum: ["true"] } }
       responses: { "200": { description: OK } }
   /api/runs/{id}:
-    get: { summary: Run detail (task_runs, validation_results, logs), responses: { "200": { description: OK } } }
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get: { summary: "Run detail (task_runs, validation_results, logs)", responses: { "200": { description: OK } } }
   /api/runs/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     post: { summary: Cancel a run (admin), responses: { "200": { description: OK } } }
   /api/workers:
     get: { summary: List workers (with trust/version surface), responses: { "200": { description: OK } } }
@@ -151,6 +172,8 @@ paths:
             schema: { type: object, required: [name], properties: { name: {type: string}, timezone: {type: string} } }
       responses: { "200": { description: Created } }
   /api/pools/{poolId}/workers:
+    parameters:
+      - { name: poolId, in: path, required: true, schema: { type: string } }
     post:
       summary: Add worker to pool (admin)
       requestBody:
@@ -158,6 +181,116 @@ paths:
           application/json:
             schema: { type: object, required: [worker_id], properties: { worker_id: {type: string} } }
       responses: { "200": { description: OK } }
+  /api/integrations/github/status:
+    get:
+      operationId: getGitHubIntegrationStatus
+      summary: Get the organization's GitHub App connection status
+      responses:
+        "200":
+          description: GitHub integration configuration and connection status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GitHubIntegrationStatus' }
+  /api/integrations/github/connect:
+    post:
+      operationId: connectGitHub
+      summary: Start GitHub OAuth and App installation (admin)
+      description: >
+        Returns a GitHub authorization URL. Open it in a browser; GitHub
+        completes the OAuth and installation flow through the callback
+        endpoint. This operation cannot complete the user-consent step
+        headlessly.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                returnTo:
+                  type: string
+                  default: /settings/integrations
+                  description: Relative ControlGrip path used after the callback
+      responses:
+        "200":
+          description: Browser authorization URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GitHubConnectResponse' }
+  /api/integrations/github/callback:
+    get:
+      operationId: completeGitHubConnection
+      summary: Complete GitHub OAuth or App installation callback
+      description: >
+        Browser callback used by GitHub. Signed, single-use state binds this
+        unauthenticated request to the initiating ControlGrip organization and
+        user; API clients should not call it directly.
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, schema: { type: string } }
+        - { name: installation_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        "302": { description: Redirect to the App installation page or the requested ControlGrip return path }
+  /api/integrations/github/repositories:
+    get:
+      operationId: listGitHubRepositories
+      summary: List repositories granted to the organization
+      description: >
+        Returns the repository grant captured during connection, scoped to the
+        intersection of the App installation and the connecting user's access.
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Case-insensitive substring filter on fullName }
+      responses:
+        "200":
+          description: Granted repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GitHubRepository' }
+  /api/integrations/github/branches:
+    get:
+      operationId: listGitHubBranches
+      summary: List branches for a granted repository
+      parameters:
+        - { name: owner, in: query, required: true, schema: { type: string } }
+        - { name: repo, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Repository branches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GitHubBranch' }
+  /api/integrations/github/repo-file:
+    get:
+      operationId: getGitHubRepositoryFileExists
+      summary: Check whether a file exists at a repository ref
+      parameters:
+        - { name: owner, in: query, required: true, schema: { type: string } }
+        - { name: repo, in: query, required: true, schema: { type: string } }
+        - { name: ref, in: query, schema: { type: string }, description: Defaults to the repository's default branch }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: File existence result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exists]
+                properties: { exists: { type: boolean } }
+  /api/integrations/github:
+    delete:
+      operationId: disconnectGitHub
+      summary: Disconnect the organization's GitHub App installation (admin)
+      description: >
+        Fails with GITHUB_IN_USE while a current connector, latest job task, or
+        active run still depends on the installation.
+      responses:
+        "204": { description: Disconnected }
+        "409": { description: GitHub installation is still in use }
 components:
   schemas:
     CreateConnector:
@@ -190,6 +323,8 @@ components:
                 properties:
                   type: { type: string, enum: [record_count, stream_record_count, required_streams, fields_present, field_aggregate] }
         retry_policy: { type: object }
+        source:
+          $ref: '#/components/schemas/GitHubSource'
         depends_on:
           type: array
           items:
@@ -212,3 +347,62 @@ components:
           type: object
           required: [cron]
           properties: { cron: {type: string}, timezone: {type: string} }
+    GitHubIntegrationStatus:
+      type: object
+      required: [connected, configured, mode]
+      properties:
+        connected: { type: boolean }
+        configured: { type: boolean }
+        mode: { type: string, enum: [app, none] }
+        login: { type: string }
+        avatarUrl: { type: string, format: uri }
+        profileUrl: { type: string, format: uri }
+    GitHubConnectResponse:
+      type: object
+      required: [authUrl]
+      properties:
+        authUrl: { type: string, format: uri }
+    GitHubRepository:
+      type: object
+      required: [id, name, fullName, owner, defaultBranch, private, htmlUrl]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        fullName: { type: string }
+        owner: { type: string }
+        defaultBranch: { type: string }
+        private: { type: boolean }
+        htmlUrl: { type: string, format: uri }
+    GitHubBranch:
+      type: object
+      required: [name, commit]
+      properties:
+        name: { type: string }
+        commit:
+          type: object
+          required: [sha]
+          properties:
+            sha: { type: string }
+    GitHubRepositoryIdentity:
+      type: object
+      required: [id, owner, name]
+      properties:
+        id: { type: integer, format: int64 }
+        owner: { type: string }
+        name: { type: string }
+    GitHubSource:
+      type: object
+      description: Immutable task-owned Git source metadata resolved independently for each run
+      required: [type, provider, authentication, repository, ref, revision_policy, workdir, main_path]
+      properties:
+        type: { type: string, const: git }
+        provider: { type: string, const: github }
+        authentication: { type: string, enum: [github_app, public] }
+        repository: { $ref: '#/components/schemas/GitHubRepositoryIdentity' }
+        ref: { type: string }
+        revision_policy: { type: string, enum: [track_ref, pin] }
+        pinned_revision:
+          type: string
+          description: Full commit SHA returned for a pinned source
+        workdir: { type: string, default: "." }
+        main_path: { type: string }

@@ -38,6 +38,44 @@ pub struct RunDetail {
     pub validation_status: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GitHubIntegrationStatus {
+    pub connected: bool,
+    pub configured: bool,
+    pub mode: String,
+    #[serde(default)]
+    pub login: String,
+    #[serde(default, rename = "avatarUrl")]
+    pub avatar_url: String,
+    #[serde(default, rename = "profileUrl")]
+    pub profile_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GitHubRepository {
+    pub id: i64,
+    pub name: String,
+    #[serde(rename = "fullName")]
+    pub full_name: String,
+    pub owner: String,
+    #[serde(rename = "defaultBranch")]
+    pub default_branch: String,
+    pub private: bool,
+    #[serde(rename = "htmlUrl")]
+    pub html_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GitHubCommit {
+    pub sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GitHubBranch {
+    pub name: String,
+    pub commit: GitHubCommit,
+}
+
 pub struct ControlGrip {
     base: String,
     http: Http,
@@ -58,6 +96,7 @@ impl ControlGrip {
             "GET" => self.http.get(&url),
             "POST" => self.http.post(&url),
             "PUT" => self.http.put(&url),
+            "DELETE" => self.http.delete(&url),
             _ => unreachable!("unsupported method {method}"),
         };
         let req = match body {
@@ -127,6 +166,74 @@ impl ControlGrip {
         Ok(())
     }
 
+    pub fn github_status(&self) -> Result<GitHubIntegrationStatus, Error> {
+        let value = self.request("GET", "/api/integrations/github/status", None)?;
+        Ok(serde_json::from_value(value).expect("GitHub integration status"))
+    }
+
+    /// Start the owner/admin connection flow. The returned GitHub URL must be
+    /// opened in a browser to complete user authorization and App installation.
+    pub fn connect_github(&self, return_to: &str) -> Result<String, Error> {
+        let return_to = if return_to.trim().is_empty() {
+            "/settings/integrations"
+        } else {
+            return_to
+        };
+        let value = self.request(
+            "POST",
+            "/api/integrations/github/connect",
+            Some(json!({"returnTo": return_to})),
+        )?;
+        Ok(value["authUrl"].as_str().unwrap_or_default().to_string())
+    }
+
+    pub fn disconnect_github(&self) -> Result<(), Error> {
+        self.request("DELETE", "/api/integrations/github", None)?;
+        Ok(())
+    }
+
+    pub fn github_repositories(&self, query: &str) -> Result<Vec<GitHubRepository>, Error> {
+        let path = if query.trim().is_empty() {
+            "/api/integrations/github/repositories".to_string()
+        } else {
+            format!(
+                "/api/integrations/github/repositories{}",
+                encode_query(&[("q", query.trim())])
+            )
+        };
+        let value = self.request("GET", &path, None)?;
+        Ok(serde_json::from_value(value).expect("GitHub repositories"))
+    }
+
+    pub fn github_branches(&self, owner: &str, repo: &str) -> Result<Vec<GitHubBranch>, Error> {
+        let path = format!(
+            "/api/integrations/github/branches{}",
+            encode_query(&[("owner", owner), ("repo", repo)])
+        );
+        let value = self.request("GET", &path, None)?;
+        Ok(serde_json::from_value(value).expect("GitHub branches"))
+    }
+
+    pub fn github_repository_file_exists(
+        &self,
+        owner: &str,
+        repo: &str,
+        git_ref: &str,
+        path: &str,
+    ) -> Result<bool, Error> {
+        let endpoint = format!(
+            "/api/integrations/github/repo-file{}",
+            encode_query(&[
+                ("owner", owner),
+                ("repo", repo),
+                ("ref", git_ref),
+                ("path", path),
+            ])
+        );
+        let value = self.request("GET", &endpoint, None)?;
+        Ok(value["exists"].as_bool().unwrap_or(false))
+    }
+
     pub fn run_job(&self, job_id: &str) -> Result<String, Error> {
         self.run_job_with(job_id, None)
     }
@@ -194,5 +301,30 @@ impl ControlGrip {
             }
             thread::sleep(poll);
         }
+    }
+}
+
+fn encode_query(params: &[(&str, &str)]) -> String {
+    let mut url =
+        reqwest::Url::parse("https://controlgrip.invalid").expect("static query base URL");
+    url.query_pairs_mut().extend_pairs(params.iter().copied());
+    format!("?{}", url.query().unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_query;
+
+    #[test]
+    fn github_query_values_are_encoded() {
+        assert_eq!(
+            encode_query(&[
+                ("owner", "acme"),
+                ("repo", "tax agents"),
+                ("ref", "feature/one"),
+                ("path", "src/job.py"),
+            ]),
+            "?owner=acme&repo=tax+agents&ref=feature%2Fone&path=src%2Fjob.py",
+        );
     }
 }
