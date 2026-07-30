@@ -69,7 +69,7 @@ paths:
   /api/organization/secrets:
     get: { summary: List secret names+versions (never values), responses: { "200": { description: OK } } }
     put:
-      summary: Set per-job secrets (admin; write-only)
+      summary: Set organization secrets (admin; write-only)
       requestBody:
         content:
           application/json:

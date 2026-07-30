@@ -114,6 +114,8 @@ impl ControlGrip {
         Ok(serde_json::from_value(v).expect("job response"))
     }
 
+    /// Organization-scoped, write-only; referenced as `${secret:NAME}`.
+    /// (The per-job endpoint this SDK originally called was removed.)
     pub fn set_secrets(&self, secrets: Value) -> Result<(), Error> {
         self.request("PUT", "/api/organization/secrets", Some(json!({"secrets": secrets})))?;
         Ok(())
