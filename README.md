@@ -34,8 +34,8 @@ Every client exposes the same operations:
 | `ensure(path, name, body)` | idempotent list-then-create-by-name |
 | `create_worker(name, host)` | response carries the **one-time** enrollment key |
 | `create_job(body)` | tasks + `depends_on` DAG + `expected_output` contracts + optional inline cron |
-| `set_secrets(job_id, {...})` | write-only server-side; referenced as `${secret:NAME}` |
-| `set_variables(job_id, {...})` | plain values; referenced as `${var:NAME}` |
+| `set_secrets({...})` | organization-scoped, write-only; referenced as `${secret:NAME}` |
+| `set_variables({...})` | organization-scoped plain values; referenced as `${var:NAME}` |
 | `update_tasks(job_id, tasks, base_version)` | publishes a new job version (optimistic concurrency) |
 | `run_job(job_id, parameters?)` → run id | manual trigger; typed parameters validated against the job's `parameters_schema`, read as `${var:CG_PARAM_<NAME>}` |
 | `create_backfill(job_id, start, end, parameters?)` | one run per past schedule window, sequentially (`list_backfills` / `cancel_backfill` alongside) |
@@ -65,8 +65,8 @@ job = cg.create_job({
     }],
     "schedule": {"cron": "0 2 * * *", "timezone": "UTC"},
 })
-cg.set_secrets(job["id"], {"API_KEY": "..."})
-cg.set_variables(job["id"], {"SINCE": "2026-01-01"})
+cg.set_secrets({"API_KEY": "..."})
+cg.set_variables({"SINCE": "2026-01-01"})
 
 detail = cg.wait_for_run(cg.run_job(job["id"]))
 print(detail["state"], detail["validation_status"])

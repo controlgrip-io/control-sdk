@@ -114,13 +114,14 @@ impl ControlGrip {
         Ok(serde_json::from_value(v).expect("job response"))
     }
 
-    pub fn set_secrets(&self, job_id: &str, secrets: Value) -> Result<(), Error> {
-        self.request("PUT", &format!("/api/jobs/{job_id}/secrets"), Some(json!({"secrets": secrets})))?;
+    pub fn set_secrets(&self, secrets: Value) -> Result<(), Error> {
+        self.request("PUT", "/api/organization/secrets", Some(json!({"secrets": secrets})))?;
         Ok(())
     }
 
-    pub fn set_variables(&self, job_id: &str, variables: Value) -> Result<(), Error> {
-        self.request("PUT", &format!("/api/jobs/{job_id}/variables"), Some(json!({"variables": variables})))?;
+    /// Organization-scoped plain values; referenced as `${var:NAME}`.
+    pub fn set_variables(&self, variables: Value) -> Result<(), Error> {
+        self.request("PUT", "/api/organization/variables", Some(json!({"variables": variables})))?;
         Ok(())
     }
 
