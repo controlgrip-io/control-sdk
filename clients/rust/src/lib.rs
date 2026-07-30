@@ -125,8 +125,53 @@ impl ControlGrip {
     }
 
     pub fn run_job(&self, job_id: &str) -> Result<String, Error> {
-        let v = self.request("POST", &format!("/api/jobs/{job_id}/run"), Some(json!({})))?;
+        self.run_job_with(job_id, None)
+    }
+
+    /// Manual trigger with typed run parameters, validated against the job's
+    /// parameters_schema and read by connectors as `${var:CG_PARAM_<NAME>}`.
+    pub fn run_job_with(&self, job_id: &str, parameters: Option<Value>) -> Result<String, Error> {
+        let body = match parameters {
+            Some(p) => json!({ "parameters": p }),
+            None => json!({}),
+        };
+        let v = self.request("POST", &format!("/api/jobs/{job_id}/run"), Some(body))?;
         Ok(v["job_run_id"].as_str().unwrap_or_default().to_string())
+    }
+
+    /// One run per past schedule window in [start, end), sequentially;
+    /// start/end are RFC3339 and the job's cron defines the boundaries.
+    pub fn create_backfill(
+        &self, job_id: &str, start: &str, end: &str, parameters: Option<Value>,
+    ) -> Result<Value, Error> {
+        let mut body = json!({ "start": start, "end": end });
+        if let Some(p) = parameters {
+            body["parameters"] = p;
+        }
+        self.request("POST", &format!("/api/jobs/{job_id}/backfill"), Some(body))
+    }
+
+    pub fn list_backfills(&self, job_id: &str) -> Result<Value, Error> {
+        self.request("GET", &format!("/api/jobs/{job_id}/backfills"), None)
+    }
+
+    pub fn cancel_backfill(&self, backfill_id: &str) -> Result<(), Error> {
+        self.request("DELETE", &format!("/api/backfills/{backfill_id}"), None)?;
+        Ok(())
+    }
+
+    /// Approve an awaiting gate with typed input (validated against the
+    /// gate's resolved schema — run detail's `await_input_schema`).
+    pub fn submit_task_input(&self, run_id: &str, task_key: &str, input: Value) -> Result<Value, Error> {
+        self.request("POST", &format!("/api/runs/{run_id}/tasks/{task_key}/input"),
+            Some(json!({ "input": input })))
+    }
+
+    /// Reject an awaiting gate; the task fails and dependents block
+    /// (a `when:"fails"` dependent fires instead).
+    pub fn reject_task_input(&self, run_id: &str, task_key: &str, reason: &str) -> Result<Value, Error> {
+        self.request("POST", &format!("/api/runs/{run_id}/tasks/{task_key}/input"),
+            Some(json!({ "reject": true, "reason": reason })))
     }
 
     pub fn get_run(&self, run_id: &str) -> Result<RunDetail, Error> {
@@ -138,7 +183,7 @@ impl ControlGrip {
         let deadline = Instant::now() + timeout;
         loop {
             let detail = self.get_run(run_id)?;
-            if matches!(detail.state.as_str(), "succeeded" | "failed" | "cancelled") {
+            if matches!(detail.state.as_str(), "succeeded" | "failed" | "cancelled" | "skipped") {
                 return Ok(detail);
             }
             if Instant::now() > deadline {

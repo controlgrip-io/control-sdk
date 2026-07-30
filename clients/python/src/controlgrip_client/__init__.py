@@ -16,7 +16,7 @@ from typing import Any
 
 import requests
 
-TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
+TERMINAL_STATES = {"succeeded", "failed", "cancelled", "skipped"}
 
 
 class ControlGripError(RuntimeError):
@@ -79,8 +79,40 @@ class ControlGrip:
     def update_tasks(self, job_id: str, tasks: list[dict], base_version: int) -> dict:
         return self.put(f"/api/jobs/{job_id}/tasks", {"tasks": tasks, "base_version": base_version})
 
-    def run_job(self, job_id: str) -> str:
-        return self.post(f"/api/jobs/{job_id}/run")["job_run_id"]
+    def run_job(self, job_id: str, parameters: dict | None = None) -> str:
+        """Manual trigger. `parameters` is validated against the job's
+        parameters_schema and read by connectors as ${var:CG_PARAM_<NAME>}."""
+        body = {"parameters": parameters} if parameters is not None else {}
+        return self.post(f"/api/jobs/{job_id}/run", body)["job_run_id"]
+
+    # ── backfill: one run per past schedule window, sequentially ────────────
+    def create_backfill(self, job_id: str, start: str, end: str,
+                        parameters: dict | None = None) -> dict:
+        """start/end are RFC3339; the job's cron defines the window
+        boundaries (pinned at creation). Returns the backfill row with
+        planned_runs."""
+        body: dict[str, Any] = {"start": start, "end": end}
+        if parameters is not None:
+            body["parameters"] = parameters
+        return self.post(f"/api/jobs/{job_id}/backfill", body)
+
+    def list_backfills(self, job_id: str) -> list[dict]:
+        return self.get(f"/api/jobs/{job_id}/backfills")
+
+    def cancel_backfill(self, backfill_id: str) -> None:
+        self.request("DELETE", f"/api/backfills/{backfill_id}")
+
+    # ── await-input gates (human-in-the-loop) ───────────────────────────────
+    def submit_task_input(self, run_id: str, task_key: str, input: dict) -> dict:
+        """Approve an awaiting gate with typed input (validated against the
+        gate's resolved schema — see run detail's await_input_schema)."""
+        return self.post(f"/api/runs/{run_id}/tasks/{task_key}/input", {"input": input})
+
+    def reject_task_input(self, run_id: str, task_key: str, reason: str) -> dict:
+        """Reject an awaiting gate; the task fails and dependents block
+        (a when:"fails" dependent fires instead)."""
+        return self.post(f"/api/runs/{run_id}/tasks/{task_key}/input",
+                         {"reject": True, "reason": reason})
 
     def get_run(self, run_id: str) -> dict:
         return self.get(f"/api/runs/{run_id}")

@@ -4,7 +4,7 @@
  * response (the sign-in sets the session) and replays them on each request.
  */
 
-const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled"]);
+const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled", "skipped"]);
 
 export class ControlGripError extends Error {
   constructor(
@@ -89,9 +89,32 @@ export class ControlGrip {
   updateTasks(jobId: string, tasks: unknown[], baseVersion: number) {
     return this.put(`/api/jobs/${jobId}/tasks`, { tasks, base_version: baseVersion });
   }
-  async runJob(jobId: string): Promise<string> {
-    const r = await this.post<{ job_run_id: string }>(`/api/jobs/${jobId}/run`);
+  /** Manual trigger. `parameters` is validated against the job's
+   * parameters_schema and read by connectors as ${var:CG_PARAM_<NAME>}. */
+  async runJob(jobId: string, parameters?: Record<string, unknown>): Promise<string> {
+    const r = await this.post<{ job_run_id: string }>(
+      `/api/jobs/${jobId}/run`, parameters ? { parameters } : {});
     return r.job_run_id;
+  }
+  /** One run per past schedule window, sequentially; start/end RFC3339. */
+  createBackfill(jobId: string, start: string, end: string, parameters?: Record<string, unknown>) {
+    return this.post<{ id: string; planned_runs: number; state: string }>(
+      `/api/jobs/${jobId}/backfill`, { start, end, ...(parameters ? { parameters } : {}) });
+  }
+  listBackfills(jobId: string) {
+    return this.get<Array<{ id: string; state: string; runs_started: number }>>(
+      `/api/jobs/${jobId}/backfills`);
+  }
+  cancelBackfill(backfillId: string) {
+    return this.request("DELETE", `/api/backfills/${backfillId}`);
+  }
+  /** Approve an awaiting gate with typed input (see await_input_schema on run detail). */
+  submitTaskInput(runId: string, taskKey: string, input: Record<string, unknown>) {
+    return this.post(`/api/runs/${runId}/tasks/${taskKey}/input`, { input });
+  }
+  /** Reject an awaiting gate; the task fails (a when:"fails" dependent fires instead). */
+  rejectTaskInput(runId: string, taskKey: string, reason: string) {
+    return this.post(`/api/runs/${runId}/tasks/${taskKey}/input`, { reject: true, reason });
   }
   getRun(runId: string) {
     return this.get<{ state: string; validation_status?: string }>(`/api/runs/${runId}`);
