@@ -132,12 +132,17 @@ func (c *Client) CreateJob(body any) (Named, error) {
 	return out, err
 }
 
-func (c *Client) SetSecrets(jobID string, secrets map[string]string) error {
-	return c.Do("PUT", "/api/jobs/"+jobID+"/secrets", map[string]any{"secrets": secrets}, nil)
+// SetSecrets is organization-scoped and write-only; values are referenced
+// as ${secret:NAME}. (The per-job endpoint this SDK originally called was
+// removed server-side.)
+func (c *Client) SetSecrets(secrets map[string]string) error {
+	return c.Do("PUT", "/api/organization/secrets", map[string]any{"secrets": secrets}, nil)
 }
 
-func (c *Client) SetVariables(jobID string, variables map[string]string) error {
-	return c.Do("PUT", "/api/jobs/"+jobID+"/variables", map[string]any{"variables": variables}, nil)
+// SetVariables sets organization-scoped plain values, referenced as
+// ${var:NAME}.
+func (c *Client) SetVariables(variables map[string]string) error {
+	return c.Do("PUT", "/api/organization/variables", map[string]any{"variables": variables}, nil)
 }
 
 func (c *Client) UpdateTasks(jobID string, tasks []any, baseVersion int) error {

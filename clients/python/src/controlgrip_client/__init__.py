@@ -70,11 +70,17 @@ class ControlGrip:
     def create_job(self, body: dict) -> dict:
         return self.post("/api/jobs", body)
 
-    def set_secrets(self, job_id: str, secrets: dict[str, str]) -> None:
-        self.put(f"/api/jobs/{job_id}/secrets", {"secrets": secrets})
+    def set_secrets(self, secrets: dict[str, str]) -> None:
+        """Organization-scoped, write-only; referenced as ${secret:NAME}.
+        (The per-job endpoints this SDK originally called were removed.)"""
+        self.put("/api/organization/secrets", {"secrets": secrets})
 
-    def set_variables(self, job_id: str, variables: dict[str, str]) -> None:
-        self.put(f"/api/jobs/{job_id}/variables", {"variables": variables})
+    def set_variables(self, variables: dict[str, str], remove: list[str] | None = None) -> None:
+        """Organization-scoped plain values; referenced as ${var:NAME}."""
+        body: dict[str, Any] = {"variables": variables}
+        if remove:
+            body["remove"] = remove
+        self.put("/api/organization/variables", body)
 
     def update_tasks(self, job_id: str, tasks: list[dict], base_version: int) -> dict:
         return self.put(f"/api/jobs/{job_id}/tasks", {"tasks": tasks, "base_version": base_version})

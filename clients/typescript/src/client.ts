@@ -80,11 +80,14 @@ export class ControlGrip {
       "/api/workers", { name, host });
   }
   createJob(body: unknown) { return this.post<{ id: string }>("/api/jobs", body); }
-  setSecrets(jobId: string, secrets: Record<string, string>) {
-    return this.put(`/api/jobs/${jobId}/secrets`, { secrets });
+  /** Organization-scoped, write-only; referenced as ${secret:NAME}.
+   * (The per-job endpoints this SDK originally called were removed.) */
+  setSecrets(secrets: Record<string, string>) {
+    return this.put("/api/organization/secrets", { secrets });
   }
-  setVariables(jobId: string, variables: Record<string, string>) {
-    return this.put(`/api/jobs/${jobId}/variables`, { variables });
+  /** Organization-scoped plain values; referenced as ${var:NAME}. */
+  setVariables(variables: Record<string, string>, remove?: string[]) {
+    return this.put("/api/organization/variables", { variables, ...(remove ? { remove } : {}) });
   }
   updateTasks(jobId: string, tasks: unknown[], baseVersion: number) {
     return this.put(`/api/jobs/${jobId}/tasks`, { tasks, base_version: baseVersion });

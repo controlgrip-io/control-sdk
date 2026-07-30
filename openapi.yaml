@@ -66,7 +66,7 @@ paths:
                 base_version: { type: integer, description: Optimistic-concurrency guard }
                 tasks: { type: array, items: { $ref: '#/components/schemas/JobTask' } }
       responses: { "200": { description: New version } }
-  /api/jobs/{id}/secrets:
+  /api/organization/secrets:
     get: { summary: List secret names+versions (never values), responses: { "200": { description: OK } } }
     put:
       summary: Set per-job secrets (admin; write-only)
@@ -75,7 +75,7 @@ paths:
           application/json:
             schema: { type: object, required: [secrets], properties: { secrets: { type: object, additionalProperties: { type: string } } } }
       responses: { "200": { description: OK } }
-  /api/jobs/{id}/variables:
+  /api/organization/variables:
     get: { summary: List variables, responses: { "200": { description: OK } } }
     put:
       summary: Set non-secret variables (admin)
