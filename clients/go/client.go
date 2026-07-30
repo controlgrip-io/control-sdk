@@ -133,12 +133,17 @@ func (c *Client) CreateJob(body any) (Named, error) {
 	return out, err
 }
 
-func (c *Client) SetSecrets(jobID string, secrets map[string]string) error {
-	return c.Do("PUT", "/api/jobs/"+jobID+"/secrets", map[string]any{"secrets": secrets}, nil)
+// SetSecrets is organization-scoped and write-only; values are referenced
+// as ${secret:NAME}. (The per-job endpoint this SDK originally called was
+// removed server-side.)
+func (c *Client) SetSecrets(secrets map[string]string) error {
+	return c.Do("PUT", "/api/organization/secrets", map[string]any{"secrets": secrets}, nil)
 }
 
-func (c *Client) SetVariables(jobID string, variables map[string]string) error {
-	return c.Do("PUT", "/api/jobs/"+jobID+"/variables", map[string]any{"variables": variables}, nil)
+// SetVariables sets organization-scoped plain values, referenced as
+// ${var:NAME}.
+func (c *Client) SetVariables(variables map[string]string) error {
+	return c.Do("PUT", "/api/organization/variables", map[string]any{"variables": variables}, nil)
 }
 
 func (c *Client) UpdateTasks(jobID string, tasks []any, baseVersion int) error {
@@ -147,11 +152,68 @@ func (c *Client) UpdateTasks(jobID string, tasks []any, baseVersion int) error {
 }
 
 func (c *Client) RunJob(jobID string) (string, error) {
+	return c.RunJobWith(jobID, nil)
+}
+
+// RunJobWith passes typed run parameters, validated against the job's
+// parameters_schema and read by connectors as ${var:CG_PARAM_<NAME>}.
+func (c *Client) RunJobWith(jobID string, parameters map[string]any) (string, error) {
+	body := map[string]any{}
+	if parameters != nil {
+		body["parameters"] = parameters
+	}
 	var out struct {
 		JobRunID string `json:"job_run_id"`
 	}
-	err := c.Do("POST", "/api/jobs/"+jobID+"/run", map[string]any{}, &out)
+	err := c.Do("POST", "/api/jobs/"+jobID+"/run", body, &out)
 	return out.JobRunID, err
+}
+
+// Backfill is a minimal projection of the backfill row.
+type Backfill struct {
+	ID          string `json:"id"`
+	State       string `json:"state"`
+	PlannedRuns int    `json:"planned_runs"`
+	RunsStarted int    `json:"runs_started"`
+}
+
+// CreateBackfill mints one run per past schedule window in [start, end),
+// sequentially; the job's cron defines the boundaries (pinned at creation).
+func (c *Client) CreateBackfill(jobID string, start, end time.Time, parameters map[string]any) (Backfill, error) {
+	body := map[string]any{
+		"start": start.UTC().Format(time.RFC3339),
+		"end":   end.UTC().Format(time.RFC3339),
+	}
+	if parameters != nil {
+		body["parameters"] = parameters
+	}
+	var out Backfill
+	err := c.Do("POST", "/api/jobs/"+jobID+"/backfill", body, &out)
+	return out, err
+}
+
+func (c *Client) ListBackfills(jobID string) ([]Backfill, error) {
+	var out []Backfill
+	err := c.Do("GET", "/api/jobs/"+jobID+"/backfills", nil, &out)
+	return out, err
+}
+
+func (c *Client) CancelBackfill(backfillID string) error {
+	return c.Do("DELETE", "/api/backfills/"+backfillID, nil, nil)
+}
+
+// SubmitTaskInput approves an awaiting gate with typed input (validated
+// against the gate's resolved schema — run detail's await_input_schema).
+func (c *Client) SubmitTaskInput(runID, taskKey string, input map[string]any) error {
+	return c.Do("POST", "/api/runs/"+runID+"/tasks/"+taskKey+"/input",
+		map[string]any{"input": input}, nil)
+}
+
+// RejectTaskInput rejects an awaiting gate; the task fails and dependents
+// block (a when:"fails" dependent fires instead).
+func (c *Client) RejectTaskInput(runID, taskKey, reason string) error {
+	return c.Do("POST", "/api/runs/"+runID+"/tasks/"+taskKey+"/input",
+		map[string]any{"reject": true, "reason": reason}, nil)
 }
 
 // RunDetail is a minimal projection of GET /api/runs/{id}.
@@ -273,7 +335,7 @@ func (c *Client) WaitForRun(runID string, poll, timeout time.Duration) (RunDetai
 			return detail, err
 		}
 		switch detail.State {
-		case "succeeded", "failed", "cancelled":
+		case "succeeded", "failed", "cancelled", "skipped":
 			return detail, nil
 		}
 		if time.Now().After(deadline) {

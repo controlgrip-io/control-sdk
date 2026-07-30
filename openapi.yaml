@@ -72,20 +72,16 @@ paths:
                 base_version: { type: integer, description: Optimistic-concurrency guard }
                 tasks: { type: array, items: { $ref: '#/components/schemas/JobTask' } }
       responses: { "200": { description: New version } }
-  /api/jobs/{id}/secrets:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+  /api/organization/secrets:
     get: { summary: List secret names+versions (never values), responses: { "200": { description: OK } } }
     put:
-      summary: Set per-job secrets (admin; write-only)
+      summary: Set organization secrets (admin; write-only)
       requestBody:
         content:
           application/json:
             schema: { type: object, required: [secrets], properties: { secrets: { type: object, additionalProperties: { type: string } } } }
       responses: { "200": { description: OK } }
-  /api/jobs/{id}/variables:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+  /api/organization/variables:
     get: { summary: List variables, responses: { "200": { description: OK } } }
     put:
       summary: Set non-secret variables (admin)
@@ -97,7 +93,42 @@ paths:
   /api/jobs/{id}/run:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
-    post: { summary: Trigger a manual run (admin), responses: { "200": { description: "{job_run_id}" } } }
+    post:
+      summary: Trigger a manual run (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { parameters: { type: object, description: "Typed run parameters, validated against the job's parameters_schema; read as ${var:CG_PARAM_<NAME>}" } } }
+      responses: { "202": { description: "{job_run_id}" } }
+  /api/jobs/{id}/backfill:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: One run per past schedule window in [start, end), sequentially (admin)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [start, end], properties: { start: {type: string, format: date-time}, end: {type: string, format: date-time}, parameters: {type: object} } }
+      responses: { "202": { description: "Backfill row with planned_runs" } }
+  /api/jobs/{id}/backfills:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get: { summary: Backfills for a job, responses: { "200": { description: "Backfill rows" } } }
+  /api/backfills/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete: { summary: Cancel a running backfill (admin), responses: { "200": { description: Cancelled } } }
+  /api/runs/{id}/tasks/{taskKey}/input:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: taskKey, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Resolve an await_input gate (admin; approve with typed input, or reject with a reason)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { input: {type: object}, reject: {type: boolean}, reason: {type: string} } }
+      responses: { "202": { description: "Gate resolved; run progresses" } }
   /api/schedules:
     post:
       summary: Attach a cron schedule to an existing job (admin)
