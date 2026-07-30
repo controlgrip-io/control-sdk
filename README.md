@@ -37,7 +37,9 @@ Every client exposes the same operations:
 | `set_secrets(job_id, {...})` | write-only server-side; referenced as `${secret:NAME}` |
 | `set_variables(job_id, {...})` | plain values; referenced as `${var:NAME}` |
 | `update_tasks(job_id, tasks, base_version)` | publishes a new job version (optimistic concurrency) |
-| `run_job(job_id)` → run id | manual trigger |
+| `run_job(job_id, parameters?)` → run id | manual trigger; typed parameters validated against the job's `parameters_schema`, read as `${var:CG_PARAM_<NAME>}` |
+| `create_backfill(job_id, start, end, parameters?)` | one run per past schedule window, sequentially (`list_backfills` / `cancel_backfill` alongside) |
+| `submit_task_input(run_id, task_key, input)` / `reject_task_input(...)` | resolve an `await_input` gate (human-in-the-loop) |
 | `get_run(id)` / `wait_for_run(id)` | state, validation results, poll to terminal |
 
 ## Quickstart (Python; the other clients mirror it)
@@ -73,7 +75,11 @@ print(detail["state"], detail["validation_status"])
 Contract validators available in `expected_output.checks`: `record_count`,
 `stream_record_count`, `required_streams`, `fields_present`,
 `field_aggregate`. Dependency triggers: `passes` (terminal **and** validated),
-`finishes`, `starts`.
+`finishes`, `starts`, and `fails` — the compensation edge: the dependent runs
+only when the upstream actually failed, and resolves to a green `skipped`
+otherwise. Task inputs also carry the flow-control policies (`await_input`
+gates, `run_job` child-job calls, `fan_out`, `cache`, `skip_when`), and a job
+body may declare `parameters_schema` for typed run parameters.
 
 ## Status
 
